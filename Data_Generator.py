@@ -4,9 +4,25 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-def generate_session_csv(session, csv_name):
+def qualifying_data(race, year):
+    session = FastF1.get_session(year, race, 'Q')
+    session.load()
+
+    qualifying_data = {}
+
+    for row in session.results.itertuples():
+        driver = row.Abbreviation
+        position = row.Position
+        qualifying_data[driver] = position
+
+    # print(race, year, '\n', qualifying_data)
+    return qualifying_data
+
+
+def generate_session_csv(race, year, session, csv_name):
     laps_df = pd.DataFrame()
-    
+    quali_data = qualifying_data(race, year)
+
     for driver in session.drivers:
         driver_laps = session.laps.pick_drivers(driver)
         driver_laps_df = pd.DataFrame(driver_laps)
@@ -23,7 +39,7 @@ def generate_session_csv(session, csv_name):
                 'Sector 1 Average': np.mean(driver_laps_df['Sector1Time'].dt.total_seconds()),
                 'Sector 2 Average': np.mean(driver_laps_df['Sector2Time'].dt.total_seconds()),
                 'Sector 3 Average': np.mean(driver_laps_df['Sector3Time'].dt.total_seconds()),
-                'Positions': driver_laps_df['Position'].tolist(),
+                'Qualifying Position': quali_data.get(driver_laps_df['Driver'].iloc[0], None),
                 'Finish Position': driver_laps_df['Position'].iloc[-1]
             }
             laps_df = laps_df._append(row, ignore_index=True)
@@ -44,8 +60,14 @@ def main():
     session2 = FastF1.get_session(2024, 'Abu Dhabi', 'R')
     session2.load()
 
-    generate_session_csv(session1, 'Abu_Dhabi_2023_Driver_Data.csv')
-    generate_session_csv(session2, 'Abu_Dhabi_2024_Driver_Data.csv')
+    generate_session_csv('Abu Dhabi', 2023, session1, 'Abu_Dhabi_2023_Driver_Data.csv')
+    generate_session_csv('Abu Dhabi', 2024, session2, 'Abu_Dhabi_2024_Driver_Data.csv')
+
+    for race in ['Spain', 'Canada', 'Bahrain', 'Saudi Arabia', 'Singapore']:
+        session = FastF1.get_session(2025, race, 'R')
+        session.load()
+        race = race.replace(" ", "_")
+        generate_session_csv(race, 2025, session, f'{race}_2025_Driver_Data.csv')
 
 if __name__ == "__main__":
     main()
