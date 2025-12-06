@@ -94,6 +94,10 @@ X_features = pd.concat([abu_avg[features], sim_features[features]], ignore_index
 # Combine labels or Y value for both sets of features
 labels = pd.concat([abu_avg['Weighted Finish'], sim_features['Weighted Finish']], ignore_index=True)
 
+# Handle NaN values
+max_pos = int(max(labels.dropna().max() if not labels.dropna().empty else 20, 20))
+X_features = X_features.fillna(max_pos + 1)
+
 # Scale features
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X_features.values)
@@ -107,7 +111,6 @@ weights = np.concatenate([
     np.full(len(abu_scaled), abu_weight),
     np.full(len(sim_scaled), sim_weight)
 ])
-
 
 # Train Neural Network
 model = MLPRegressor(
