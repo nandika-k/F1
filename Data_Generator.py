@@ -14,6 +14,7 @@ def generate_session_csv(session, csv_name):
             'Driver': driver_laps_df['Driver'].iloc[0],
             'Fastest Lap Time': min(driver_laps_df['LapTime'].dt.total_seconds()),
             'Average Lap Time': np.mean(driver_laps_df['LapTime'].dt.total_seconds()),
+            'STD Lap Time': np.std(driver_laps_df['LapTime'].dt.total_seconds()),
             'Sector 1 Average': np.mean(driver_laps_df['Sector1Time'].dt.total_seconds()),
             'Sector 2 Average': np.mean(driver_laps_df['Sector2Time'].dt.total_seconds()),
             'Sector 3 Average': np.mean(driver_laps_df['Sector3Time'].dt.total_seconds()),
