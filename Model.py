@@ -18,6 +18,8 @@ similar_fps = [
     "race_data/Spain_2025_Driver_Data.csv",
 ]
 
+qualifiying_25 = "race_data/Abu_Dhabi_2025_Qualifying_Data.csv"
+
 predict_2025_fp = "race_data/PREDICTION_Abu_Dhabi_2025_Driver_Data.csv"  # optional
 
 numeric_base_features = [
@@ -38,6 +40,7 @@ sim_weight = 0.2
 # Load Abu Dhabi race data
 race23 = pd.read_csv(race23_fp)
 race24 = pd.read_csv(race24_fp)
+quali25 = pd.read_csv(qualifiying_25)
 
 # Load similar races data
 sim_dfs = []
@@ -50,7 +53,14 @@ for fp in similar_fps:
 # Combine similar tracks from sim_dfs
 sim_hist = pd.concat(sim_dfs, ignore_index=True)
 
-# Combine dfs for all historical and similar races
+
+# Filter to only include current drivers (apply per-DataFrame)
+current_drivers = ['PIA', 'VER', 'HAM', 'LEC', 'SAI', 'RUS', 'NOR', 'ALO', 'GAS', 'HUL', 'TSU', 'STR', 'ALB']
+race23 = race23[race23['Driver'].isin(current_drivers)].reset_index(drop=True)
+race24 = race24[race24['Driver'].isin(current_drivers)].reset_index(drop=True)
+sim_hist = sim_hist[sim_hist['Driver'].isin(current_drivers)].reset_index(drop=True)
+
+# Alls the dfs for historical and similar races
 all_dfs_for_laps = [race23, race24] + sim_dfs
 
 # Create feature list, same as numeric for right now
@@ -63,8 +73,6 @@ abu_hist = pd.merge(
     on="Driver",
     suffixes=('_23', '_24')
 )
-
-
 # Create abu_avg df using weighted average of each feature across 23 & 24
 abu_avg = pd.DataFrame()
 abu_avg['Driver'] = abu_hist['Driver']
@@ -127,19 +135,55 @@ model.fit(X_scaled, labels.values, sample_weight=weights)
 
 pred_finish_abu = model.predict(abu_scaled)
 
-# Add predictions to abu_avg dataframe
-abu_avg['Predicted Finish'] = pred_finish_abu
+# # Predict results
+# # Merge current qualifying grid into abu_avg 
+# abu_avg = abu_avg.merge(quali25[['Driver', 'Qualifying_Position_25']], on='Driver', how='left')
+# new_features = features + ['Qualifying_Position_25']
+
+# # rebuild abu features and scale using the previously-fitted scaler
+# abu_features_current = abu_avg[features].fillna(max_pos + 1)
+# abu_scaled_current = scaler.transform(abu_features_current.values)
+# pred_finish_abu = model.predict(abu_scaled_current)
+
+# Map qualifying positions into abu_avg by Driver and compute a safe z-score
+qual_series = quali25.set_index('Driver')['Qualifying Position'] if 'Qualifying Position' in quali25.columns else None
+if qual_series is None:
+    # try alternative column names
+    for c in ['Position', 'Grid', 'QualPos', 'Qualifying_Position_25']:
+        if c in quali25.columns:
+            qual_series = quali25.set_index('Driver')[c]
+            break
+
+if qual_series is None:
+    # no qualifying data found; fall back to zeros
+    qual_mapped = pd.Series(np.full(len(abu_avg), max_pos + 1), index=abu_avg.index)
+else:
+    qual_mapped = abu_avg['Driver'].map(qual_series).astype(float).fillna(max_pos + 1)
+
+# z-score (guard against zero std)
+qual_std = qual_mapped.std()
+if pd.isna(qual_std) or qual_std == 0:
+    qual_scaled = (qual_mapped - qual_mapped.mean()).fillna(0.0)
+else:
+    qual_scaled = (qual_mapped - qual_mapped.mean()) / qual_std
+
+# Align predictions and qual by abu_avg order and compute blended prediction
+alpha = 0.3
+pred_array = np.asarray(pred_finish_abu)
+qual_array = np.asarray(qual_scaled)
+if pred_array.shape[0] != qual_array.shape[0]:
+    # if lengths mismatch, try aligning by driver index
+    pred_series = pd.Series(pred_array, index=abu_avg['Driver'].values)
+    qual_array = abu_avg['Driver'].map(qual_series).astype(float).fillna(max_pos + 1).values
+abu_avg['Predicted Finish'] = (1 - alpha) * pred_array + alpha * qual_array * max_pos
+
 # Assign each driver a rank and sort by predicted finish
 abu_avg['Predicted Rank'] = abu_avg['Predicted Finish'].rank(method='dense', ascending=True).astype(int)
 abu_ranking = abu_avg.sort_values('Predicted Rank').reset_index(drop=True)
 
-# Filter to only include current drivers
-current_drivers = ['PIA', 'VER', 'HAM', 'LEC', 'SAI', 'RUS', 'NOR', 'ALO', 'GAS','HUL', 'TSU', 'STR', 'ALB']
-abu_ranking = abu_ranking[abu_ranking['Driver'].isin(current_drivers)]
-
 # Output results
 print("\nPredicted Abu Dhabi 2025 Results")
-print(abu_ranking[['Driver', 'Predicted Finish', 'Predicted Rank']])
+print(abu_ranking[['Driver', 'Predicted Rank']])
 
 # Save output
-abu_ranking[['Driver', 'Predicted Finish', 'Predicted Rank']].to_csv(predict_2025_fp, index=False)
+abu_ranking[['Driver', 'Predicted Rank']].to_csv(predict_2025_fp, index=False)
